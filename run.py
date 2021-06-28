@@ -25,7 +25,10 @@ from torchvision.models.resnet import BasicBlock, Bottleneck
 from torchvision.models.resnet import model_urls
 
 from typing import Type, Any, Callable, Union, List, Dict, Optional, cast
-from collections import OrderedDict 
+from collections import OrderedDict
+
+
+from evaluate import compute_map_and_print
 
 data_dir = os.getcwd() + "\\data"
 
@@ -99,7 +102,8 @@ def new_resnet(
 
 
 def initialize_model(model_name):
-    new_model = new_resnet(model_name,'avgpool',Bottleneck, [3,4,6,3],True,True)
+    if(model_name == "resnet50"):
+        new_model = new_resnet(model_name,'avgpool',Bottleneck, [3,4,6,3],True,True)
     new_model = new_model.to('cuda:0')
     print(summary(new_model,input_size=(3, 224, 224)))
     global model
@@ -149,10 +153,16 @@ def load_db_features():
     db_features = pickle.load(open("db_features.pkl",'rb'))
     return db_features
 
-def query_image_and_show(number_of_images, image_id):
+def query_image_and_show(number_of_images, image_id, bbx = None):
+    
+    print("Query Image")
     imgplot = plt.imshow(mpimg.imread(images_list[image_id]))
     plt.show()
-    ranked = query_image(image_id)
+    print(images_list[image_id])
+    print(image_id)
+    print("*********************")
+    print("searching...")
+    ranked = query_image(image_id, bbx)
     
     closest = ranked[:number_of_images]
 
@@ -160,12 +170,18 @@ def query_image_and_show(number_of_images, image_id):
         imgplot = plt.imshow(mpimg.imread(images_list[i]))
         plt.show()
         print(images_list[i])
+        print(i)
+        print("*********************")
     
     
-def query_image(image_id):
+def query_image(image_id, bbx = None):
     image_path = images_list[image_id]
     
     input_image = Image.open(image_path)
+    
+    if bbx is not None:
+        input_image = input_image.crop(bbx)
+        
     preprocess = transforms.Compose([
         transforms.Resize(256),
         transforms.CenterCrop(224),
@@ -184,23 +200,20 @@ def query_image(image_id):
     out = out.cpu().data.numpy()
     query = np.squeeze(out).ravel()
     
-    
+
     dist_vec = np.linalg.norm(db_features - query, axis=1)
     ranked = np.argsort(dist_vec)
     
     return ranked
 
 def evaluate():
+    ranks = np.empty(shape=[0, 5063])
     for qid in range(len(db_dict["qidx"])):
+
+        ranked = np.array(query_image(db_dict["qidx"][qid], db_dict["gnd"][qid]["bbx"]))
+        ranks = np.append(ranks, [ranked.tolist()], axis=0)
         
-        #queried_image = images_list[db_dict["qidx"][qid]]
-        #query_image_and_show(10, db_dict["qidx"][qid])
-        
-        ranked = query_image(db_dict["qidx"][qid])
-        
-        bbx = db_dict["gnd"][qid]["bbx"]
-        ok = db_dict["gnd"][qid]["ok"]
-        junk = db_dict["gnd"][qid]["junk"]
+    compute_map_and_print("oxford5k", ranks.T, db_dict["gnd"])
         
     
     
