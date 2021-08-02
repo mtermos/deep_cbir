@@ -1,3 +1,4 @@
+from hashlib import new
 import sys
 import os
 import time
@@ -8,7 +9,8 @@ import matplotlib.pyplot as plt
 import matplotlib.image as mpimg
 import pickle
 import timeit
-
+import cv2    
+from sklearn.cluster import MeanShift, estimate_bandwidth
 
 from os import listdir
 from os.path import isfile, join
@@ -40,8 +42,19 @@ from cirtorch.networks.imageretrievalnet import init_network
 from cirtorch.datasets.genericdataset import ImagesFromList
 from cirtorch.datasets.datahelpers import default_loader, imresize
 
+from models.yolo import Model as new_yolo_class
+
 data_dir = os.getcwd() + "\\data"
-image_size = 256
+
+output_dim = 2048
+
+
+# making the resolution adaptive?
+
+# image_size = 256
+# image_size = 512
+# image_size = 768
+image_size = 1024
 
 def load_db_dict():
     infile = open(data_dir + "\\gnd_oxford5k.pkl",'rb')
@@ -73,6 +86,42 @@ class new_resnet50_class(nn.Module):
         self.layer3 = new_model.layer3
         self.layer4 = new_model.layer4
         self.avgpool = new_model.avgpool
+        # self.maxpool = nn.AdaptiveMaxPool2d((1, 1))
+
+    def _forward_impl(self, x: Tensor) -> Tensor:
+        x = self.conv1(x)
+        x = self.bn1(x)
+        x = self.relu(x)
+        x = self.maxpool(x)
+
+        x = self.layer1(x)
+        x = self.layer2(x)
+        x = self.layer3(x)
+        x = self.layer4(x)
+
+        x = self.avgpool(x)
+        # x = self.maxpool(x)
+
+        return x
+
+
+    def forward(self, x: Tensor) -> Tensor:
+        return self._forward_impl(x)
+
+
+class new_resnet101_class(nn.Module):
+    def __init__(self, new_model):
+        super().__init__()
+        self.conv1 = new_model.conv1
+        self.bn1 = new_model.bn1
+        self.relu = new_model.relu
+        self.maxpool = new_model.maxpool
+        self.layer1 = new_model.layer1
+        self.layer2 = new_model.layer2
+        self.layer3 = new_model.layer3
+        self.layer4 = new_model.layer4
+        self.avgpool = new_model.avgpool
+
     def _forward_impl(self, x: Tensor) -> Tensor:
         x = self.conv1(x)
         x = self.bn1(x)
@@ -116,7 +165,7 @@ class new_inception_v3_class(nn.Module):
         self.Mixed_7b = new_model.Mixed_7b
         self.Mixed_7c = new_model.Mixed_7c
         self.avgpool = new_model.avgpool
-        self.dropout = new_model.dropout
+        # self.dropout = new_model.dropout
         
     def forward(self, x: Tensor) -> Tensor:
         # N x 3 x 299 x 299
@@ -160,12 +209,40 @@ class new_inception_v3_class(nn.Module):
         # Adaptive average pooling
         x = self.avgpool(x)
         # N x 2048 x 1 x 1
-        x = self.dropout(x)
+        # x = self.dropout(x)
         # N x 2048 x 1 x 1
-        x = torch.flatten(x, 1)
+        # x = torch.flatten(x, 1)
         # N x 2048
         return x
-    
+
+def load_yolo(trained_model, empty_model):
+    empty_model.model.__setitem__(0,trained_model.model.model.__getitem__(0))
+    empty_model.model.__setitem__(1,trained_model.model.model.__getitem__(1))
+    empty_model.model.__setitem__(2,trained_model.model.model.__getitem__(2))
+    empty_model.model.__setitem__(3,trained_model.model.model.__getitem__(3))
+    empty_model.model.__setitem__(4,trained_model.model.model.__getitem__(4))
+    empty_model.model.__setitem__(5,trained_model.model.model.__getitem__(5))
+    empty_model.model.__setitem__(6,trained_model.model.model.__getitem__(6))
+    empty_model.model.__setitem__(7,trained_model.model.model.__getitem__(7))
+    empty_model.model.__setitem__(8,trained_model.model.model.__getitem__(8))
+    empty_model.model.__setitem__(9,trained_model.model.model.__getitem__(9))
+    empty_model.model.__setitem__(10,trained_model.model.model.__getitem__(10))
+    empty_model.model.__setitem__(11,trained_model.model.model.__getitem__(11))
+    empty_model.model.__setitem__(12,trained_model.model.model.__getitem__(12))
+    empty_model.model.__setitem__(13,trained_model.model.model.__getitem__(13))
+    empty_model.model.__setitem__(14,trained_model.model.model.__getitem__(14))
+    empty_model.model.__setitem__(15,trained_model.model.model.__getitem__(15))
+    empty_model.model.__setitem__(16,trained_model.model.model.__getitem__(16))
+    empty_model.model.__setitem__(17,trained_model.model.model.__getitem__(17))
+    empty_model.model.__setitem__(18,trained_model.model.model.__getitem__(18))
+    empty_model.model.__setitem__(19,trained_model.model.model.__getitem__(19))
+    empty_model.model.__setitem__(20,trained_model.model.model.__getitem__(20))
+    empty_model.model.__setitem__(21,trained_model.model.model.__getitem__(21))
+    empty_model.model.__setitem__(22,trained_model.model.model.__getitem__(22))
+    empty_model.model.__setitem__(23,trained_model.model.model.__getitem__(23))
+    empty_model.model.__setitem__(24,trained_model.model.model.__getitem__(24))
+
+    return empty_model
 
 class new_densenet121_class(nn.Module):
     def __init__(self, new_model):
@@ -191,11 +268,25 @@ class new_densenet121_class(nn.Module):
 def my_model(model_name):
     if(model_name == "resnet50"):
         cnn_model = models.resnet50(pretrained=True)
+        # new_model = nn.Sequential(*list(cnn_model.children())[:-1])
         new_model = new_resnet50_class(cnn_model)
+
+    if(model_name == "resnet101"):
+        cnn_model = models.resnet101(pretrained=True)
+        new_model = new_resnet101_class(cnn_model)
     
     if(model_name == "inception"):
         cnn_model = models.inception_v3(pretrained=True)
         new_model = new_inception_v3_class(cnn_model)
+
+    if(model_name == "yolo"):
+        cnn_model = torch.hub.load('ultralytics/yolov5', 'yolov5s', pretrained=True)
+        # new_model = cnn_model
+        # new_model = nn.Sequential(*list(cnn_model.model.model.children())[:-1])
+        # empty_new_model = new_yolo_class()
+        # new_model = empty_new_model
+        # new_model = load_yolo(cnn_model, empty_new_model)
+        new_model = cnn_model
         
     if(model_name == "densenet121"):
         cnn_model = models.densenet121(pretrained=True)
@@ -216,6 +307,21 @@ def my_model(model_name):
 
         new_model = init_network(net_params)
         
+
+    if(model_name == "trained"):
+        state = torch.load("C:\\Users\\Mortada\\Python\\Image_retrieval\\deep_cbir\\export\\retrieval-SfM-120k_resnet50_imsize512\\model_best.pth.tar")
+
+        net_params = {}
+        net_params['architecture'] = state['meta']['architecture']
+        net_params['pooling'] = state['meta']['pooling']
+        net_params['mean'] = state['meta']['mean']
+        net_params['std'] = state['meta']['std']
+        net_params['pretrained'] = False
+
+        net = init_network(net_params)
+        net.load_state_dict(state['state_dict'])
+        new_model = net
+
     global model
     model = new_model
     return new_model
@@ -223,12 +329,12 @@ def my_model(model_name):
 
     
 def extract_dataset_images_features():
-    image_features = torch.zeros(len(images_list), 2048)
+    image_features = torch.zeros(len(images_list), output_dim)
     i = 0
     for image in images_list:
         output = extract_vectors(image)
 
-        image_features[i, :] = output
+        image_features[i, :] = output.flatten()
         i += 1
         sys.stdout.write("\r{0} done out of 5063".format(i))
         sys.stdout.flush()
@@ -301,8 +407,26 @@ def extract_vectors(image_path, bbxs=None):
         else:
             img = imresize(img, image_size)
 
-        img = transform(img)
 
+
+        #testing meanshift
+
+
+        # cv_img = segmented_image(cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR))
+
+        # plt.imshow(img)
+        # plt.show()
+
+        # img = Image.fromarray(cv_img)
+
+        # plt.imshow(img)
+        # plt.show()
+
+        #end testing meanshift
+
+
+
+        img = transform(img)
         input = img.cuda()
 
         vecs = model(input.unsqueeze(0)).cpu().data.squeeze()
@@ -314,6 +438,7 @@ def query_image(image_id, bbx = None):
     
     query = extract_vectors(image_path,bbx)
 
+    # dist_vec = np.dot(db_features, query)
     dist_vec = np.linalg.norm(db_features - query, axis=1)
     ranked = np.argsort(dist_vec)
     
@@ -332,4 +457,60 @@ def evaluate():
         
     stop = timeit.default_timer()
 
-    print('Time: ', stop - start) 
+    print('Time: ', stop - start)
+
+
+
+def test_model(test_model, dataset):
+    if test_model is not None:
+        global model
+        model = test_model
+
+    if dataset != "oxford5k":
+        return 0
+
+    load_db_dict()
+    import_images()
+    extract_dataset_images_features()
+    evaluate()
+
+
+def segmented_image(originImg):
+    #Loading original image
+    # originImg = cv2.imread(image_path)
+
+    # Shape of original image    
+    originShape = originImg.shape
+
+
+    # Converting image into array of dimension [nb of pixels in originImage, 3]
+    # based on r g b intensities    
+    flatImg=np.reshape(originImg, [-1, 3])
+
+
+    # Estimate bandwidth for meanshift algorithm    
+    bandwidth = estimate_bandwidth(flatImg, quantile=0.1, n_samples=100)    
+    ms = MeanShift(bandwidth = bandwidth, bin_seeding=True)
+
+    # Performing meanshift on flatImg    
+    ms.fit(flatImg)
+
+    # (r,g,b) vectors corresponding to the different clusters after meanshift    
+    labels=ms.labels_
+
+    # Remaining colors after meanshift    
+    cluster_centers = ms.cluster_centers_    
+
+    # Finding and diplaying the number of clusters    
+    labels_unique = np.unique(labels)    
+    n_clusters_ = len(labels_unique)
+
+    # Displaying segmented image    
+    segmentedImg = cluster_centers[np.reshape(labels, originShape[:2])]
+
+    return segmentedImg.astype(np.uint8)
+
+
+# db_dict = load_db_dict()
+# model = my_model("resnet50")
+# extract_vectors('all_souls_000209.jpg')

@@ -27,7 +27,6 @@ class ImagesFromList(data.Dataset):
     def __init__(self, root, images, imsize=None, bbxs=None, transform=None, loader=default_loader):
 
         images_fn = [os.path.join(root,images[i]) for i in range(len(images))]
-        print(images_fn)
         if len(images_fn) == 0:
             raise(RuntimeError("Dataset contains 0 images!"))
 
